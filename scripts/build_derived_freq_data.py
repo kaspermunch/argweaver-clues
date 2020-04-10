@@ -35,7 +35,7 @@ for chrom in chromosomes:
     for pop in populations:
         print('   ', pop)
 
-        with open(f'steps/freq_data/{pop}_{chrom}.txt.frq') as f:
+        with open(f'steps/freq_data/{pop}_{chrom}.frq') as f:
 
             derived_freq_records = []
             for line in f:
