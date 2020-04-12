@@ -108,78 +108,82 @@ snp_pos = 136608646
 gwf.target('clues', inputs=[cond_trans_matrix_file], outputs=[clues_output_file], walltime='10:00:00', memory='36g') << f"""
 mkdir -p steps/clues
 
-python ../../software/clues/clues.py {argweaver_trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} \
-    --posn {snp_pos} --derivedAllele {derived_allele} --noAncientHap \
+python ../../../software/clues/clues.py {argweaver_trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} \
+    --posn {snp_pos} --derivedAllele {derived_allele} --noAncientHap --approx 10000 \
     --thin 10 --burnin 100 --output {clues_output_base_name}
 """
 
 
-# ################################################################################################
-# # Run clues on many SNPs in a window:
-# ################################################################################################
+################################################################################################
+# Run clues on many SNPs in a window:
+################################################################################################
 
-# freq_data_file = 'steps/freq_data/derived_pop_freqs.h5'
-# chrom = '2'
-# window_start = 136000000
-# window_end = 137000000
-# pop = 'CEU'
-# min_freq = 0.25
-# nr_snps = 5
+freq_data_file = 'steps/freq_data/derived_pop_freqs.h5'
+chrom = '2'
+window_start = 136000000
+window_end = 137000000
+pop = 'CEU'
+min_freq = 0.25
+nr_snps = 5
 
-# from subprocess import PIPE, Popen
+from subprocess import PIPE, Popen
 
-# def execute(cmd, stdin=None):
-#     process = Popen(cmd.split(), stdin=PIPE, stdout=PIPE, stderr=PIPE)
-#     stdout, stderr = process.communicate(stdin)
-#     return stdout, stderr
+def execute(cmd, stdin=None):
+    process = Popen(cmd.split(), stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = process.communicate(stdin)
+    return stdout, stderr
 
-# def read_snp_info(snp_file):
-#     snp_list = list()
-#     with open('snps.txt', 'r') as snp_file:
-#         for line in snp_file:
-#             chrom, snp_pos, derived_allele, derived_freq = line.split()
-#             snp_pos = int(snp_pos)
-#             derived_freq = float(derived_freq)
-#             snp_list.append((chrom, snp_pos, derived_allele, derived_freq))
-#     return snp_list
+def read_snp_info(snp_file):
+    snp_list = list()
+    with open('snps.txt', 'r') as snp_file:
+        for line in snp_file:
+            chrom, snp_pos, derived_allele, derived_freq = line.split()
+            snp_pos = int(snp_pos)
+            derived_freq = float(derived_freq)
+            snp_list.append((chrom, snp_pos, derived_allele, derived_freq))
+    return snp_list
     
-# def get_single_snp(freq_data_file, chrom, pop, snp_pos)
-#     snp_file_name = 'snps.txt'
-#     execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
-#     snp_list = read_snp_info(snp_file_name)
-#     return snp_list
+def get_single_snp(freq_data_file, chrom, pop, snp_pos):
+    snp_file_name = 'snps.txt'
+    execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
+    snp_list = read_snp_info(snp_file_name)
+    return snp_list
 
-# def get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_snps):
-#     snp_file_name = 'snps.txt'
-#     execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --start {window_start} --end {window_end} --minfreq {min_freq} --nrsnps {nr_snps}")
-#     snp_list = read_snp_info(snp_file_name)
-#     return snp_list
+def get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_snps):
+    snp_file_name = 'snps.txt'
+    execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --start {window_start} --end {window_end} --minfreq {min_freq} --nrsnps {nr_snps}")
+    snp_list = read_snp_info(snp_file_name)
+    return snp_list
 
-# clues_task_list = list()
+clues_task_list = list()
 
-# snp_list = get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_snps)
+snp_list = get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_snps)
 
-# for chrom, snp_pos, derived_allele, derived_freq in snp_list:
+for chrom, snp_pos, derived_allele, derived_freq in snp_list:
 
-#     print(chrom, snp_pos, derived_allele, derived_freq)
+    clues_output_file = f'steps/clues/clues_{chrom}_{snp_pos}_{pop}.h5'
+    clues_output_base_name = modpath(clues_output_file, suffix='')
 
-#     clues_output_file = f'steps/clues/clues_{chrom}_{snp_pos}.h5'
-#     clues_output_base_name = modpath(clues_output_file, suffix='')
+    clues_trees_file = modpath(clues_output_file, suffix='.trees')
+#    clues_trees_file = modpath(clues_output_file, suffix='.trees', parent='/scratch/$GWF_JOBID')
 
-#     clues_task = gwf.target(f'clues_{chrom}_{snp_pos}', inputs=[cond_trans_matrix_file], outputs=[clues_output_file], walltime='10:00:00', memory='36g') << f"""
+    clues_task = gwf.target(f'clues_{chrom}_{snp_pos}_{pop}', inputs=[cond_trans_matrix_file], outputs=[clues_output_file], walltime='10:00:00', memory='36g') << f"""
 
-#     source ./scripts/conda_init.sh
-#     conda activate clues
+    source ./scripts/conda_init.sh
+    conda activate cluesmj
 
-#     mkdir -p steps/clues
+    mkdir -p steps/clues
 
-#     python ../../software/clues/clues.py {argweaver_trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} \
-#         --posn {snp_pos} --derivedAllele {derived_allele} --noAncientHap \
-#         --thin 10 --burnin 100 --output {clues_output_base_name}
-#     """
-#     clues_task_list.append(clues_task)
+    arg-summarize -a {argweaver_bed_file} -r {chrom}:{snp_pos}-{snp_pos} \
+        -l {argweaver_log_file} -E > {clues_trees_file}
 
-# clues_files = [output for task in clues_task_list for output in task.outputs]
+    python ../../../software/clues/clues.py {clues_trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} \
+        --posn {snp_pos} --derivedAllele {derived_allele} --noAncientHap --approx 10000 \
+        --thin 10 --burnin 100 --output {clues_output_base_name}
+    """
+    clues_task_list.append(clues_task)
+
+clues_files = [output for task in clues_task_list for output in task.outputs]
 
 
 
@@ -188,10 +192,15 @@ python ../../software/clues/clues.py {argweaver_trees_file} {cond_trans_matrix_f
 # Extract info from all clues files
 ################################################################################################
 
+clues_csv_file_name = f'steps/clues/clues_{chrom}_{window_start}_{window_end}_{pop}.csv'
 
+clues_file_base_names = ' '.join([modpath(f, parent='', suffix='') for f in clues_files])
 
+gwf.target(f'clues_{chrom}_{window_start}_{window_end}_{pop}_csv', inputs=clues_files, outputs=[clues_csv_file_name], walltime='1:00:00', memory='1g') << f"""
 
-clues_h5_to_csv_tasks = gwf.map(clues_h5_to_csv, clues_files)
+python scripts/extract_clues_info.py {clues_csv_file_name} steps/clues {clues_file_base_names}
+"""
+
 
 
 

@@ -2,7 +2,7 @@
 import sys
 from Bio import SeqIO
 
-_, input_file_name, ancestral_sequence_file_name, output_file_name = sys.argv
+_, input_file_name, ancestral_sequence_file_name, output_file_name = sys.argv # pylint: disable=unbalanced-tuple-unpacking
 
 input_file = open(input_file_name)
 ancestral_sequence_file = open(ancestral_sequence_file_name)
