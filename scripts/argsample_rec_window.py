@@ -7,6 +7,9 @@ from chromwindow import window
 _, rec_map_file, chrom, start, end, output_file = sys.argv
 start, end = int(start), int(end)
 
+# chrom names in bed file is with chr prefix
+chrom = 'chr' + chrom
+
 df = pd.read_csv(rec_map_file, sep='\t', names=['chrom', 'start', 'end', 'rate', 'maplen'])
 
 df = df.loc[(df.chrom == chrom) & (df.end > start) & (df.start < end)]

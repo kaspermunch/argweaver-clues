@@ -60,7 +60,7 @@ def vcf_window(vcf_file, chrom, win_start, win_end, pop, stepsdir):
     
     spec = f'''
     
-    mkdir -p steps/recode_vcf/{chrom}_{win_start}_{win_end}
+    mkdir -p {stepsdir}
 
     vcftools --gzvcf {vcf_file} --chr {chrom} --from-bp {win_start} --to-bp {win_end-1} \
         --keep ~/simons/faststorage/data/1000Genomes/metainfo/{pop}_male.txt \
@@ -77,7 +77,7 @@ def vcf2sites(vcffile, chrom, win_start, win_end, pop, stepsdir):
     """
     Convert a VCF files to the sites format used by ARGweaver.
     """
-    sitesfile=f'{stepsdir}/{chrom}_{win_start}_{win_end}/{chrom}_{win_start}_{win_end}_{pop}.sites'
+    sitesfile=f'{stepsdir}/{chrom}_{win_start}_{win_end}_{pop}.sites'
 
     inputs = [vcffile]
     outputs = {'sites_file': sitesfile}
@@ -88,7 +88,7 @@ def vcf2sites(vcffile, chrom, win_start, win_end, pop, stepsdir):
     
     spec = f'''
     
-    mkdir -p steps/sitesfiles/{chrom}_{win_start}_{win_end}
+    mkdir -p {stepsdir}
 
     python scripts/vcf2sites.py {vcffile} {sitesfile}
     
@@ -124,7 +124,7 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
     """
     bed_file = modpath(sites_file, parent=stepsdir, suffix='.bed.gz')
 
-    arg_sample_base_name = modpath(bed_file, suffix='')
+    arg_sample_base_name = modpath(bed_file, suffix=('.bed.gz', ''))
     log_file = modpath(arg_sample_base_name, suffix='.log')
 
     inputs = {'sites_file': sites_file, 'recomb_file': recomb_file}
@@ -133,7 +133,7 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
         'memory': '40g',
         'walltime': '14-00:00:00'
     }
-
+    print("NB: SET NUMBER OF SAMPLES BACK TO 30000")
     spec = f'''
     mkdir -p {stepsdir}
     arg-sample -s {sites_file} \
@@ -142,11 +142,11 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
             --recombmap {recomb_file} \
             -m 1.247e-08 \
             -c 25 \
-            -n 30000 \
+            -n 300 \
             --overwrite \
             -o {arg_sample_base_name} \
     && \
-    ./argweaver/bin/smc2bed-all {arg_sample_base_name}
+    ./scripts/smc2bed-all {arg_sample_base_name}
     '''
 
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
