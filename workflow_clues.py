@@ -1,253 +1,250 @@
 from gwf import Workflow, AnonymousTarget
 import os, re, sys
 import numpy as np
+os.environ['NUMEXPR_MAX_THREADS'] = '8' # to suppress a warning
+import pandas as pd
 
-gwf = Workflow()
+from templates import *
 
-def modpath(p, parent=None, base=None, suffix=None):
-    par, name = os.path.split(p)
-    name_no_suffix, suf = os.path.splitext(name)
-    if type(suffix) is str:
-        suf = suffix
-    if parent is not None:
-        par = parent
-    if base is not None:
-        name_no_suffix = base
+sys.path.append('./scripts')
+sys.path.append('./notebooks')
 
-    new_path = os.path.join(par, name_no_suffix + suf)
-    if type(suffix) is tuple:
-        assert len(suffix) == 2
-        new_path, nsubs = re.subn(r'{}$'.format(suffix[0]), suffix[1], new_path)
-        assert nsubs == 1, nsubs
-    return new_path
+gwf = Workflow(defaults={'account': 'clues'})
 
-################################################################################################
-# Example run of ARGweaver to check that it works:
-# We also need the resulting log file to build transition matrices.
-################################################################################################
+#################################################################################
+# Load meta data
+#################################################################################
 
-chrom = '2'
-window_start = 136000000
-window_end = 137000000
-sites_file = 'steps/sites/chr2.sites' # I just use the one Janne made
+chromosomes = list(map(str, range(1, 23))) + ['X']
 
-snp_pos = 136608646
-argweaver_bed_file = 'steps/arg_sample/arg_sample.bed.gz'
-argweaver_log_file = 'steps/arg_sample/arg_sample.log'
-argweaver_trees_file = 'steps/arg_sample/arg_sample.trees'
-argweaver_base_name = modpath(argweaver_log_file, suffix='')
+# build dict of vcf files
+vcf_files = dict()
+vcf_dir = '/project/simons/faststorage/data/1000Genomes/'
+for chrom in chromosomes:
+    vcf_file_name = os.path.join(vcf_dir, 'ALL.chr{}.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz'.format(chrom))
+    if chrom == 'X':
+        vcf_file_name = os.path.join(vcf_dir, 'ALL.chrX.phase3_shapeit2_mvncall_integrated_v1b.20130502.genotypes.vcf.gz')
+    vcf_files[chrom] = vcf_file_name
 
-gwf.target('argweaver', 
-    inputs=[], 
-    outputs=[argweaver_bed_file, argweaver_log_file, argweaver_trees_file],
-    walltime='10:00:00', memory='10g') << f"""
+arg_sample_times_file = 'data/tennessen_times_fine.txt'
+arg_sample_popsize_file = 'data/tennessen_popsize_fine.txt'
+decode_recomb_map_file = 'data/decode_hg38_lifted_to_hg19.bed'
 
-mkdir -p steps/arg_sample
+# produced by separate workflow_freqs.py:
+freq_data_file = 'steps/freq_data/derived_pop_freqs.h5'
 
-arg-sample -s {sites_file} --times-file data/tennessen_times_fine.txt \
-    --popsize-file data/tennessen_popsize_fine.txt -r 1e-8 -m 1.2e-8 -c 25 -n 3000 --overwrite -o {argweaver_base_name}
+################################################################################
+# Dummy run of ARGweaver steps to get the log file neaded for transition probs.
+################################################################################
 
-../../../software/argweaver/bin/smc2bed-all {argweaver_base_name}
+# small run to get 
+window_start, window_end = 29500000, 30500000
+pop = 'CEU'
+chrom = '3'
 
-arg-summarize -a {argweaver_bed_file} -r {chrom}:{snp_pos}-{snp_pos} \
-    -l {argweaver_log_file} -E > {argweaver_trees_file}
-"""
-
-#############################################################################################
-# Build transition matrices using tennensen_fine demography:
-################################################################################################
-
-def make_transition_matrices_from_argweaver(selection_coef, arg_weaver_log_file):
-
-    output_file = f'trans.s_{selection_coef}.h5'
-
-    path = 'steps/trans/matrices'
-
-    inputs=[arg_weaver_log_file]
-    outputs=[os.path.join(path, output_file)]
-    options = {'memory': '16g', 'walltime': '5-00:00:00'}
-
-    spec = f'''
-    mkdir -p {path}
-    ORIGDIR=`pwd`
-    cd {path}
-
-    python $ORIGDIR/../../../software/clues/make_transition_matrices_from_argweaver.py 10000 {selection_coef} \
-        $ORIGDIR/{arg_weaver_log_file} {output_file} --breaks 0.95 0.025 --debug
-    '''
-    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+# # make sites file
+# dummy_sites_task = gwf.target_from_template(
+#     name=f'dummy_sites_{window_start}_{window_end}',
+#     template=arg_sites_file(
+#         start=window_start,
+#         end=window_end,
+#         sites_file=f'steps/clues/dummy/dummy_{window_start}_{window_end}.sites',
+#         fasta_files=west_eur_fasta_files
+#     )
+# )
 
 
+# extract 1000 genomes vcf 
+dummy_vcf_task = gwf.target_from_template(
+    name=f'dummy_vcfwindow_{chrom}_{window_start}_{window_end}_{pop}',
+    template=vcf_window(
+        vcf_file=vcf_files[chrom],
+        chrom=chrom, win_start=window_start, win_end=window_end, pop=pop,
+        stepsdir='steps/clues/recode_vcf/dummy'
+    )
+)
+
+# make sites file for argweaver
+dummy_sites_task = gwf.target_from_template(
+    name=f'dummy_vcf2sites_{chrom}_{window_start}_{window_end}_{pop}',
+    template=vcf2sites(
+        vcffile=dummy_vcf_task.outputs['vcf_window_file'],
+        chrom=chrom, win_start=window_start, win_end=window_end, pop=pop,
+        stepsdir='steps/clues/sites_files/dummy'
+    )
+)
+
+# make a recombination file for argweaver
+dummy_recomb_task = gwf.target_from_template(
+    name=f'dummy_rec_{window_start}_{window_end}',
+    template=arg_recomb_file(
+        recomb_map=decode_recomb_map_file,
+        chrom=chrom,
+        start=window_start,
+        end=window_end,
+        stepsdir='steps/clues/recomb_files/dummy'
+    )
+)
+
+# run argsample && smc2bed-all
+dummy_argsample_target = gwf.target_from_template(
+    name=f'dummy_args_{window_start}_{window_end}',
+    template=argsample(
+        sites_file=dummy_sites_task.outputs['sites_file'], 
+        times_file=arg_sample_times_file, 
+        popsize_file=arg_sample_popsize_file, 
+        recomb_file=dummy_recomb_task.outputs['recomb_file'], 
+        stepsdir='steps/clues/argsample/dummy'
+    )
+)
+
+################################################################################
+# Precompute transistion probabilities for CLUES
+################################################################################
+
+# make transition matrices for clues for a range of selection coeficients:
+selection_coeficients = np.logspace(-5, np.log10(0.5), 50)
 trans_task_list = list()
-for i, sel_coef in enumerate(np.logspace(-5, np.log10(0.5), 50)):
-    task = gwf.target_from_template(f'trans_mat_{i}', make_transition_matrices_from_argweaver(sel_coef, argweaver_log_file))
+for i, sel_coef in enumerate(selection_coeficients):
+    task = gwf.target_from_template(
+        name=f'trans_mat_{i}', 
+        template=transition_matrices(sel_coef, dummy_argsample_target.outputs['log_file']))
     trans_task_list.append(task)
 
+# all transition matrix files:
 trans_mat_files = [output for task in trans_task_list for output in task.outputs]
 
-#freqs = ' '.join([str(round(x, 2)) for x in np.linspace(0.05, 0.95, 19)])
-freqs = '0.05 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95'
-cond_trans_matrix_file = 'steps/trans/trans_tennesen_fine.hdf5'
+# make transition matrices conditional on snp sampling frequencies:
+freqs = '0.02 0.04 0.06 0.08 0.1 0.12 0.14 0.16 0.18 0.2 0.22 0.24 0.26 0.28 0.3 0.32 0.34 0.36 0.38 0.4 0.42 0.44 0.46 0.48 0.5 0.52 0.54 0.56 0.58 0.6 0.62 0.64 0.66 0.68 0.7 0.72 0.74 0.76 0.78 0.8 0.82 0.84 0.86 0.88 0.9 0.92 0.94 0.96 0.98'
+cond_trans_matrix_file = 'steps/clues/trans/trans_tennesen_fine.hdf5'
 cond_trans_matrix_file_no_suffix = modpath(cond_trans_matrix_file, suffix='')
-gwf.target('cond_matrices', inputs=trans_mat_files, outputs=[cond_trans_matrix_file], walltime='24:00:00', memory='36g') << f"""
 
-python ../../../software/clues/conditional_transition_matrices.py {argweaver_log_file} steps/trans/matrices/ \
-    --listFreqs {freqs} -o {cond_trans_matrix_file_no_suffix}
+gwf.target(name='cond_matrices',
+     inputs=trans_mat_files, 
+     outputs=[cond_trans_matrix_file], 
+     walltime='4-00:00:00', 
+     memory='36g') << f"""
+mkdir -p {os.path.dirname(cond_trans_matrix_file)}
+python ./clues/conditional_transition_matrices.py {dummy_argsample_target.outputs['log_file']} steps/trans/matrices/ \
+    --listFreqs {freqs} -o {cond_trans_matrix_file_no_suffix} --debug
 """
 
-################################################################################################
-# Run clues on one SNP:
-################################################################################################
-
-clues_output_file = 'steps/clues/chr2_136608646.h5'
-clues_output_base_name = modpath(clues_output_file, suffix='')
-derived_allele = 'G'
-derived_freq = 75e-2
-snp_pos = 136608646
-
-gwf.target('clues', inputs=[cond_trans_matrix_file], outputs=[clues_output_file], walltime='10:00:00', memory='36g') << f"""
-mkdir -p steps/clues
-
-python ../../../software/clues/clues.py {argweaver_trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} \
-    --posn {snp_pos} --derivedAllele {derived_allele} --noAncientHap --approx 10000 \
-    --thin 10 --burnin 100 --output {clues_output_base_name}
-"""
+# ################################################################################
+# # Run ARGweaver and CLUES steps for each SNP
+# ################################################################################
 
 
-################################################################################################
-# Run clues on many SNPs in a window:
-################################################################################################
+window_centers = [55000000, 110000000]
+arg_win_size = 1500000
+center_analyzed = 500000
+flank = int((arg_win_size - center_analyzed) / 2)
 
-freq_data_file = 'steps/freq_data/derived_pop_freqs.h5'
-chrom = '2'
-window_start = 136000000
-window_end = 137000000
-pop = 'CEU'
-min_freq = 0.25
-nr_snps = 5
+clues_windows = [(int(pos - arg_win_size/2), int(pos + arg_win_size/2)) for pos in window_centers]
 
-from subprocess import PIPE, Popen
+for window_start, window_end in clues_windows:
 
-def execute(cmd, stdin=None):
-    process = Popen(cmd.split(), stdin=PIPE, stdout=PIPE, stderr=PIPE)
-    stdout, stderr = process.communicate(stdin)
-    return stdout, stderr
+    # get recombination file
+    recomb_task = gwf.target_from_template(
+        name=f'rec_{chrom}_{window_start}_{window_end}_{pop}',
+        template=arg_recomb_file(
+            recomb_map=decode_recomb_map_file,
+            chrom=chrom,
+            start=window_start,
+            end=window_end,
+            stepsdir=f'steps/clues/recomb_file'
+        )
+    )
 
-def read_snp_info(snp_file):
-    snp_list = list()
-    with open('snps.txt', 'r') as snp_file:
-        for line in snp_file:
-            chrom, snp_pos, derived_allele, derived_freq = line.split()
-            snp_pos = int(snp_pos)
-            derived_freq = float(derived_freq)
-            snp_list.append((chrom, snp_pos, derived_allele, derived_freq))
-    return snp_list
+    for pop in ['CEU', 'FIN']:
+
+
+        # # make sites file
+        # sites_task = gwf.target_from_template(
+        #     name=f'sites_{window_start}_{window_end}',
+        #     template=arg_sites_file(
+        #         start=window_start,
+        #         end=window_end,
+        #         sites_file=f'steps/clues/argsample/{window_start}_{window_end}/{window_start}_{window_end}.sites',
+        #         fasta_files=west_eur_fasta_files
+        #     )
+        # )
+
+
+        # extract vcf 
+        vcf_task = gwf.target_from_template(
+                    name=f'vcfwindow_{chrom}_{window_start}_{window_end}_{pop}',
+                    template=vcf_window(
+                        vcf_file=vcf_files[chrom],
+                        chrom=chrom,
+                        win_start=window_start,
+                        win_end=window_end,
+                        pop=pop,
+                        stepsdir='steps/recode_vcf'
+                    )
+                )
     
-def get_single_snp(freq_data_file, chrom, pop, snp_pos):
-    snp_file_name = 'snps.txt'
-    execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
-    snp_list = read_snp_info(snp_file_name)
-    return snp_list
 
-def get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_snps):
-    snp_file_name = 'snps.txt'
-    execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --start {window_start} --end {window_end} --minfreq {min_freq} --nrsnps {nr_snps}")
-    snp_list = read_snp_info(snp_file_name)
-    return snp_list
+        # make sites file
+        sites_task = gwf.target_from_template(
+            name=f'vcf2sites_{chrom}_{window_start}_{window_end}_{pop}',
+            template=vcf2sites(
+                vcffile=vcf_task.outputs['vcf_window_file'],
+                chrom=chrom,
+                win_start=window_start,
+                win_end=window_end,
+                pop=pop,
+                stepsdir='steps/clues/sites_files'
 
-clues_task_list = list()
+            )
+        )
 
-snp_list = get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_snps)
+        for chain in range(1, 3):
 
-for chrom, snp_pos, derived_allele, derived_freq in snp_list:
+            argsample_target = gwf.target_from_template(
+                name=f'args_{chrom}_{window_start}_{window_end}_{pop}_{chain}',
+                template=argsample(
+                    sites_file=sites_task.outputs['sites_file'], 
+                    times_file=arg_sample_times_file, 
+                    popsize_file=arg_sample_popsize_file, 
+                    recomb_file=recomb_task.outputs['recomb_file'], 
+                    stepsdir=f'steps/clues/argsample/{chrom}_{window_start}_{window_end}_{pop}_{chain}'
+                )
+            )
 
-    clues_output_file = f'steps/clues/clues_{chrom}_{snp_pos}_{pop}.h5'
-    clues_output_base_name = modpath(clues_output_file, suffix='')
+            min_freq = 0.25
+            nr_snps = 5
 
-    clues_trees_file = modpath(clues_output_file, suffix='.trees')
-#    clues_trees_file = modpath(clues_output_file, suffix='.trees', parent='/scratch/$GWF_JOBID')
+            snps_start, snps_end = window_start + flank, window_end - flank
+            snp_list = get_snps(freq_data_file, chrom, pop, snps_start, snps_end, min_freq, nr_snps)
 
-    clues_task = gwf.target(f'clues_{chrom}_{snp_pos}_{pop}', inputs=[cond_trans_matrix_file], outputs=[clues_output_file], walltime='10:00:00', memory='36g') << f"""
+            clues_task_list = list()
+            for chrom, snp_pos, derived_allele, derived_freq in snp_list:
+                clues_task = gwf.target_from_template(
+                    name=f'clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}_{snp_pos}',
+                    template=clues(
+                        bed_file=argsample_target.outputs['bed_file'], 
+                        sites_file=sites_task.outputs['sites_file'], 
+                        cond_trans_matrix_file=arg_sample_popsize_file, 
+                        snp_pos=snp_pos, chrom=chrom, win_start=window_start, win_end=window_end, 
+                        derived_allele=derived_allele, derived_freq=derived_freq,
+                        stepsdir=f'steps/clues/{chrom}_{window_start}_{window_end}_{pop}_{chain}'
+                    )
+                )
+                clues_task_list.append(clues_task)
 
-    source ./scripts/conda_init.sh
-    conda activate cluesmj
-
-    mkdir -p steps/clues
-
-    arg-summarize -a {argweaver_bed_file} -r {chrom}:{snp_pos}-{snp_pos} \
-        -l {argweaver_log_file} -E > {clues_trees_file}
-
-    python ../../../software/clues/clues.py {clues_trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} \
-        --posn {snp_pos} --derivedAllele {derived_allele} --noAncientHap --approx 10000 \
-        --thin 10 --burnin 100 --output {clues_output_base_name}
-    """
-    clues_task_list.append(clues_task)
-
-clues_files = [output for task in clues_task_list for output in task.outputs]
-
-
-
-
-################################################################################################
-# Extract info from all clues files
-################################################################################################
-
-clues_csv_file_name = f'steps/clues/clues_{chrom}_{window_start}_{window_end}_{pop}.csv'
-
-clues_file_base_names = ' '.join([modpath(f, parent='', suffix='') for f in clues_files])
-
-gwf.target(f'clues_{chrom}_{window_start}_{window_end}_{pop}_csv', inputs=clues_files, outputs=[clues_csv_file_name], walltime='1:00:00', memory='1g') << f"""
-
-python scripts/extract_clues_info.py {clues_csv_file_name} steps/clues {clues_file_base_names}
-"""
+            clues_files = [output for task in clues_task_list for output in task.outputs]
 
 
 
+# # ################################################################################################
+# # # Extract info from all clues files
+# # ################################################################################################
 
+# # clues_csv_file_name = f'steps/clues/clues_{chrom}_{window_start}_{window_end}_{pop}.csv'
 
+# # clues_file_base_names = ' '.join([modpath(f, parent='', suffix='') for f in clues_files])
 
+# # gwf.target(f'clues_{chrom}_{window_start}_{window_end}_{pop}_csv', inputs=clues_files, outputs=[clues_csv_file_name], walltime='1:00:00', memory='1g') << f"""
 
-
-
-
-
-
-################################################################################################
-# Old version:
-################################################################################################
-
-
-
-# clues_output_file = 'steps/clues/clues'
-# clues_output_base_name = modpath(clues_output_file, suffix='')
-
-# gwf.target('clues', inputs=[cond_trans_matrix_file], outputs=[clues_output_file], walltime='10:00:00', memory='36g') << f"""
-
-# mkdir -p steps/clues
-
-# JOBDIR=/scratch/$GWF_JOBID
-
-# JOBDIR=.
-
-# python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} $JOBDIR/snps.txt \
-#     --start {window_start} --end {window_end} --minfreq {min_freq} --nrsnps {nr_snps} 
-
-
-# python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} $JOBDIR/snps.txt \
-#     --snppos {snp_pos} 
-
-# while IFS= read -r line
-# do
-#     POS=$(cut -f1 -d " " <<<$line)
-#     BASE=$(cut -f2 -d " " <<<$line)
-#     FREQ=$(cut -f3 -d " " <<<$line)
-
-#     ~/anaconda3/envs/clues/bin/arg-summarize -a {argweaver_bed_file} -r {chrom}:$POS-$POS \
-#         -l {argweaver_log_file} -E > $JOBDIR/$POS.trees
-
-#     python ../../software/clues/clues.py $JOBDIR/$POS.trees {cond_trans_matrix_file} {sites_file} $FREQ \
-#         --posn $POS --derivedAllele $BASE --noAncientHap \
-#         --thin 10 --burnin 100 --output {clues_output_base_name}_{}_$POS
-
-# done < "$JOBDIR/snps.txt"
-# """ 
+# # python scripts/extract_clues_info.py {clues_csv_file_name} steps/clues {clues_file_base_names}
+# # """
