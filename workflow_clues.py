@@ -6,13 +6,10 @@ import pandas as pd
 
 from templates import *
 
-sys.path.append('./scripts')
-sys.path.append('./notebooks')
-
 gwf = Workflow(defaults={'account': 'clues'})
 
 #################################################################################
-# Load meta data
+# Paths to data files
 #################################################################################
 
 chromosomes = list(map(str, range(1, 23))) + ['X']
