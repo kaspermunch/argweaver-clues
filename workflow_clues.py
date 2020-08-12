@@ -195,6 +195,12 @@ for window_start, window_end in clues_windows:
             )
         )
 
+        min_freq = 0.25
+        nr_snps = 5
+
+        snps_start, snps_end = window_start + flank, window_end - flank
+        snp_list = get_snps(freq_data_file, chrom, pop, snps_start, snps_end, min_freq, nr_snps)
+
         for chain in range(1, 3):
 
             argsample_target = gwf.target_from_template(
@@ -208,23 +214,19 @@ for window_start, window_end in clues_windows:
                 )
             )
 
-            min_freq = 0.25
-            nr_snps = 5
-
-            snps_start, snps_end = window_start + flank, window_end - flank
-            snp_list = get_snps(freq_data_file, chrom, pop, snps_start, snps_end, min_freq, nr_snps)
-
             clues_task_list = list()
+            stepsdir = f'steps/clues/{chrom}_{window_start}_{window_end}_{pop}_{chain}'
             for chrom, snp_pos, derived_allele, derived_freq in snp_list:
                 clues_task = gwf.target_from_template(
                     name=f'clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}_{snp_pos}',
                     template=clues(
                         bed_file=argsample_target.outputs['bed_file'], 
                         sites_file=sites_task.outputs['sites_file'], 
-                        cond_trans_matrix_file=arg_sample_popsize_file, 
+                        cond_trans_matrix_file=cond_trans_matrix_file, 
                         snp_pos=snp_pos, chrom=chrom, win_start=window_start, win_end=window_end, 
                         derived_allele=derived_allele, derived_freq=derived_freq,
-                        stepsdir=f'steps/{chrom}_{window_start}_{window_end}_{pop}_{chain}'
+                        chain=chain,
+                        stepsdir=stepsdir
                     )
                 )
                 clues_task_list.append(clues_task)
@@ -232,16 +234,15 @@ for window_start, window_end in clues_windows:
             clues_files = [output for task in clues_task_list for output in task.outputs]
 
 
+            # Extract info from all clues files for each window
+            clues_csv_file_name = f'steps/csv/clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}.csv'
+            # steps_dir = os.path.dirname(clues_csv_file_name)
 
-# # ################################################################################################
-# # # Extract info from all clues files
-# # ################################################################################################
+            clues_file_base_names = ' '.join([modpath(f, parent='', suffix='') for f in clues_files])
 
-# # clues_csv_file_name = f'steps//clues_{chrom}_{window_start}_{window_end}_{pop}.csv'
+            gwf.target(f'clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}_csv', 
+                inputs=clues_files, outputs=[clues_csv_file_name], walltime='1:00:00', memory='1g') << f"""
 
-# # clues_file_base_names = ' '.join([modpath(f, parent='', suffix='') for f in clues_files])
-
-# # gwf.target(f'clues_{chrom}_{window_start}_{window_end}_{pop}_csv', inputs=clues_files, outputs=[clues_csv_file_name], walltime='1:00:00', memory='1g') << f"""
-
-# # python scripts/extract_clues_info.py {clues_csv_file_name} steps/clues {clues_file_base_names}
-# # """
+            mkdir -p {os.path.dirname(clues_csv_file_name)}
+            python scripts/extract_clues_info.py {clues_csv_file_name} {stepsdir} {clues_file_base_names}
+            """

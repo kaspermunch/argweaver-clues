@@ -133,7 +133,7 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
         'memory': '40g',
         'walltime': '14-00:00:00'
     }
-    print("NB: SET NUMBER OF SAMPLES BACK TO 30000")
+
     spec = f'''
     mkdir -p {stepsdir}
     arg-sample -s {sites_file} \
@@ -142,7 +142,7 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
             --recombmap {recomb_file} \
             -m 1.247e-08 \
             -c 25 \
-            -n 300 \
+            -n 30000 \
             --overwrite \
             -o {arg_sample_base_name} \
     && \
@@ -173,9 +173,9 @@ def transition_matrices(selection_coef, arg_weaver_log_file):
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
 
-def clues(bed_file, sites_file, cond_trans_matrix_file, snp_pos, chrom, win_start, win_end, derived_allele, derived_freq, stepsdir):
+def clues(bed_file, sites_file, cond_trans_matrix_file, snp_pos, chrom, win_start, win_end, derived_allele, derived_freq, chain, stepsdir):
 
-    clues_output_file = modpath(bed_file, suffix=('.bed.gz', f'_{snp_pos}.h5'), parent=stepsdir)
+    clues_output_file = modpath(bed_file, suffix=('.bed.gz', f'_{snp_pos}_{chain}.h5'), parent=stepsdir)
     log_file = modpath(bed_file, suffix=('.bed.gz', '.log'))
     trees_file = modpath(bed_file, suffix=('.bed.gz', '.trees'))
     clues_output_base_name = modpath(clues_output_file, suffix=('.h5', ''))
@@ -192,7 +192,7 @@ def clues(bed_file, sites_file, cond_trans_matrix_file, snp_pos, chrom, win_star
     arg-summarize -a {bed_file} -r {chrom}:{snp_pos}-{snp_pos} -l {log_file} -E > {trees_file} \
     && \
     python ./clues/clues.py {trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} --posn {snp_pos} \
-        --derivedAllele {derived_allele} --noAncientHap --approx 10000 --thin 10 --burnin 100 --output {clues_output_base_name}
+        --derivedAllele {derived_allele} --noAncientHap --approx 1000 --thin 10 --burnin 100 --output {clues_output_base_name} --debug
     '''
 
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
