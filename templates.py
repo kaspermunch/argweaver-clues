@@ -222,6 +222,7 @@ def get_single_snp(freq_data_file, chrom, pop, snp_pos):
     snp_file_name = 'snps.txt'
     if os.path.exists(snp_file_name):
         os.remove(snp_file_name)  
+    print(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
     execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
     snp_list = read_snp_info(snp_file_name)
     return snp_list

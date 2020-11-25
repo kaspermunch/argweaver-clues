@@ -34,7 +34,6 @@ freq_data_file = 'steps/freq_data/derived_pop_freqs.h5'
 # Dummy run of ARGweaver steps to get the log file neaded for transition probs.
 ################################################################################
 
-# small run to get 
 window_start, window_end = 29500000, 30500000
 pop = 'CEU'
 chrom = '3'
@@ -49,7 +48,6 @@ chrom = '3'
 #         fasta_files=west_eur_fasta_files
 #     )
 # )
-
 
 # extract 1000 genomes vcf 
 dummy_vcf_task = gwf.target_from_template(
@@ -238,7 +236,7 @@ for window_start, window_end in clues_windows:
             clues_csv_file_name = f'steps/csv/clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}.csv'
             # steps_dir = os.path.dirname(clues_csv_file_name)
 
-            clues_file_base_names = ' '.join([modpath(f, parent='', suffix='') for f in clues_files])
+            clues_file_base_names = ' '.join([modpath(f, parent='') for f in clues_files])
 
             gwf.target(f'clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}_csv', 
                 inputs=clues_files, outputs=[clues_csv_file_name], walltime='1:00:00', memory='1g') << f"""
