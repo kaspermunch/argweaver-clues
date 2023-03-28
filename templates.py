@@ -55,7 +55,7 @@ def vcf_window(vcf_file, chrom, win_start, win_end, pop, stepsdir):
     outputs = {'vcf_window_file': output_vcf_file}
     options = {
         'memory': '8g',
-        'walltime': '05:00:00'
+        'walltime': '12:00:00'
     }
     
     spec = f'''
@@ -130,8 +130,8 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
     inputs = {'sites_file': sites_file, 'recomb_file': recomb_file}
     outputs = {'bed_file': bed_file, 'log_file': log_file}
     options = {
-        'memory': '40g',
-        'walltime': '14-00:00:00'
+        'memory': '16g',
+        'walltime': '6-23:59:00'
     }
 
     spec = f'''
@@ -141,9 +141,9 @@ def argsample(sites_file, times_file, popsize_file, recomb_file, stepsdir):
             --popsize-file {popsize_file} \
             --recombmap {recomb_file} \
             -m 1.247e-08 \
-            -c 25 \
-            -n 30000 \
-            --overwrite \
+            -c 1 \
+            -n 5000 \
+            --resume \
             -o {arg_sample_base_name} \
     && \
     ./scripts/smc2bed-all {arg_sample_base_name}
@@ -173,26 +173,31 @@ def transition_matrices(selection_coef, arg_weaver_log_file):
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
 
-def clues(bed_file, sites_file, cond_trans_matrix_file, snp_pos, chrom, win_start, win_end, derived_allele, derived_freq, chain, stepsdir):
+def clues(bed_file, sites_file, cond_trans_matrix_file, snp_pos, chrom, win_start, win_end, ancestral_allele,  derived_allele, derived_freq, chain, stepsdir):
 
     clues_output_file = modpath(bed_file, suffix=('.bed.gz', f'_{snp_pos}_{chain}.h5'), parent=stepsdir)
     log_file = modpath(bed_file, suffix=('.bed.gz', '.log'))
-    trees_file = modpath(bed_file, suffix=('.bed.gz', '.trees'))
+    trees_file = modpath(bed_file, suffix=('.bed.gz', f'_{snp_pos}_{chain}.trees'))
     clues_output_base_name = modpath(clues_output_file, suffix=('.h5', ''))
     
-    inputs = [bed_file]
+    inputs = [bed_file, cond_trans_matrix_file]
     outputs = [clues_output_file]
     options = {
         'memory': '8g',
         'walltime': '1-00:00:00'
     }
 
+    ancestral_freq = 1 - derived_freq
+
     spec = f'''        
     mkdir -p {stepsdir}
     arg-summarize -a {bed_file} -r {chrom}:{snp_pos}-{snp_pos} -l {log_file} -E > {trees_file} \
     && \
     python ./clues/clues.py {trees_file} {cond_trans_matrix_file} {sites_file} {derived_freq} --posn {snp_pos} \
-        --derivedAllele {derived_allele} --noAncientHap --approx 1000 --thin 10 --burnin 100 --output {clues_output_base_name} --debug
+        --derivedAllele {derived_allele} --noAncientHap --approx 1000 --thin 10 --burnin 100 --output {clues_output_base_name} --debug \
+    || \
+    python ./clues/clues.py {trees_file} {cond_trans_matrix_file} {sites_file} {ancestral_freq} --posn {snp_pos} \
+        --derivedAllele {ancestral_allele} --noAncientHap --approx 1000 --thin 10 --burnin 100 --output {clues_output_base_name} --debug
     '''
 
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
@@ -211,10 +216,10 @@ def read_snp_info(snp_file):
     snp_list = list()
     with open('snps.txt', 'r') as snp_file:
         for line in snp_file:
-            chrom, snp_pos, derived_allele, derived_freq = line.split()
+            chrom, snp_pos, ancestral_allele, derived_allele, derived_freq = line.split()
             snp_pos = int(snp_pos)
             derived_freq = float(derived_freq)
-            snp_list.append((chrom, snp_pos, derived_allele, derived_freq))
+            snp_list.append((chrom, snp_pos, ancestral_allele, derived_allele, derived_freq))
     return snp_list
 
 
@@ -222,7 +227,6 @@ def get_single_snp(freq_data_file, chrom, pop, snp_pos):
     snp_file_name = 'snps.txt'
     if os.path.exists(snp_file_name):
         os.remove(snp_file_name)  
-    print(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
     execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --snppos {snp_pos}")
     snp_list = read_snp_info(snp_file_name)
     return snp_list
@@ -232,7 +236,8 @@ def get_snps(freq_data_file, chrom, pop, window_start, window_end, min_freq, nr_
     snp_file_name = 'snps.txt'
     if os.path.exists(snp_file_name):
         os.remove(snp_file_name)  
-    execute(f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --start {window_start} --end {window_end} --minfreq {min_freq} --maxsnps {nr_snps}")
+    cmd = f"python ./scripts/get_derived_freq_data.py {freq_data_file} {chrom} {pop} {snp_file_name} --start {window_start} --end {window_end} --minfreq {min_freq} --maxsnps {nr_snps}"
+    execute(cmd)
     snp_list = read_snp_info(snp_file_name)
     return snp_list
 

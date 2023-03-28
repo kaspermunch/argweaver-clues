@@ -29,12 +29,16 @@ def extract_pop_frequencies(vcf_file_name, freq_file_name, males, females):
 
 data_dir = '/project/simons/faststorage/data/1000Genomes/'
 
+included_populations = ['CEU']
+
 # read population identifiers
 pop_info_file_name = os.path.join(data_dir, 'metainfo/pop_names.tsv')
 populations = []
 with open(pop_info_file_name) as f:
     for line in f:
         pop, _ = line.split(maxsplit=1)
+        if pop not in included_populations:
+            continue
         populations.append(pop)
 
 freq_task_list = list()
@@ -70,5 +74,5 @@ gwf.target('compile_freq_data',
     outputs=[hdf_file_name], 
     walltime='10:00:00', memory='36g') << f"""
 
-python scripts/build_derived_freq_data.py {hdf_file_name}
+python scripts/build_derived_freq_data.py {hdf_file_name} {','.join(included_populations)}
 """

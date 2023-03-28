@@ -63,7 +63,7 @@ if bool(args.start) != bool(args.end):
 if args.snppos:
     query = f'pos=={args.snppos}'
 else:
-    query = f'(pos>={args.start})&(pos<{args.end})&(freq>{args.minfreq})'
+    query = f'(pos>={args.start})&(pos<{args.end})&(derfreq>{args.minfreq})'
 
 df = pd.read_hdf(args.derived_info_file, key='{}/chr{}'.format(args.pop, args.chrom), where=[query])
 df.insert(0, 'chrom', args.chrom)

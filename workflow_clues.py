@@ -24,7 +24,10 @@ for chrom in chromosomes:
     vcf_files[chrom] = vcf_file_name
 
 arg_sample_times_file = 'data/tennessen_times_fine.txt'
-arg_sample_popsize_file = 'data/tennessen_popsize_fine.txt'
+
+# arg_sample_popsize_file = 'data/tennessen_popsize_fine.txt'
+arg_sample_popsize_file = 'data/tennessen_popsize_fine_X.txt'
+
 decode_recomb_map_file = 'data/decode_hg38_lifted_to_hg19.bed'
 
 # produced by separate workflow_freqs.py:
@@ -36,7 +39,7 @@ freq_data_file = 'steps/freq_data/derived_pop_freqs.h5'
 
 window_start, window_end = 29500000, 30500000
 pop = 'CEU'
-chrom = '3'
+chrom = 'X'
 
 # # make sites file
 # dummy_sites_task = gwf.target_from_template(
@@ -128,8 +131,11 @@ python ./clues/conditional_transition_matrices.py {dummy_argsample_target.output
 # # Run ARGweaver and CLUES steps for each SNP
 # ################################################################################
 
+# window_centers = [19800000, 21200000, 36300000, 37500000, 49700000, 51100000, 54300000,
+#                   64800000, 73100000, 74100000, 77000000, 98700000, 110900000, 114100000,
+#                   127000000, 129900000, 131400000, 132700000, 154200000]
 
-window_centers = [55000000, 110000000]
+window_centers = [19800000, 21200000]
 arg_win_size = 1500000
 center_analyzed = 500000
 flank = int((arg_win_size - center_analyzed) / 2)
@@ -150,7 +156,8 @@ for window_start, window_end in clues_windows:
         )
     )
 
-    for pop in ['CEU', 'FIN']:
+    # for pop in ['CEU', 'FIN']:
+    for pop in ['CEU']:
 
 
         # # make sites file
@@ -193,10 +200,11 @@ for window_start, window_end in clues_windows:
             )
         )
 
-        min_freq = 0.25
-        nr_snps = 5
+        min_freq = 0.05
+        nr_snps = 100
 
         snps_start, snps_end = window_start + flank, window_end - flank
+        # print(freq_data_file, chrom, pop, snps_start, snps_end, min_freq, nr_snps)
         snp_list = get_snps(freq_data_file, chrom, pop, snps_start, snps_end, min_freq, nr_snps)
 
         for chain in range(1, 3):
@@ -214,7 +222,7 @@ for window_start, window_end in clues_windows:
 
             clues_task_list = list()
             stepsdir = f'steps/clues/{chrom}_{window_start}_{window_end}_{pop}_{chain}'
-            for chrom, snp_pos, derived_allele, derived_freq in snp_list:
+            for chrom, snp_pos, ancestral_allele, derived_allele, derived_freq in snp_list:
                 clues_task = gwf.target_from_template(
                     name=f'clues_{chrom}_{window_start}_{window_end}_{pop}_{chain}_{snp_pos}',
                     template=clues(
@@ -222,6 +230,7 @@ for window_start, window_end in clues_windows:
                         sites_file=sites_task.outputs['sites_file'], 
                         cond_trans_matrix_file=cond_trans_matrix_file, 
                         snp_pos=snp_pos, chrom=chrom, win_start=window_start, win_end=window_end, 
+                        ancestral_allele=ancestral_allele, 
                         derived_allele=derived_allele, derived_freq=derived_freq,
                         chain=chain,
                         stepsdir=stepsdir

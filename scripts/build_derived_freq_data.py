@@ -5,7 +5,9 @@ from subprocess import Popen, PIPE
 from Bio import SeqIO
 import pandas as pd
 
-_, hdf_file_name = sys.argv
+_, hdf_file_name, included_populations = sys.argv
+
+included_populations = included_populations.split(',')
 
 if os.path.exists(hdf_file_name):
     os.remove(hdf_file_name)
@@ -33,6 +35,10 @@ for chrom in chromosomes:
         ancestral_seq = record.seq
 
     for pop in populations:
+
+        if pop not in included_populations:
+            continue
+            
         print('   ', pop)
 
         with open(f'steps/freq_data/{pop}_{chrom}.frq') as f:
@@ -42,7 +48,12 @@ for chrom in chromosomes:
 
                 if line.startswith('CHROM'):
                     continue
-                _, pos, _, _, base1_info, base2_info = line.split()
+
+                try:
+                    _, pos, _, _, base1_info, base2_info = line.split()
+                except ValueError:
+                    print(f'Offending file: {pop}_{chrom}.frq')
+                    raise
                 pos = int(pos)
                 base1, freq1 = base1_info.split(':')
                 freq1 = float(freq1)
@@ -59,13 +70,13 @@ for chrom in chromosomes:
                     continue
 
                 if base1 != ancestral_seq[pos-1]:
-                    derived_freq_records.append((pos, base1, freq1))
+                    derived_freq_records.append((pos, base2, base1, freq1))
                 else:
-                    derived_freq_records.append((pos, base2, freq2))
+                    derived_freq_records.append((pos, base1, base2, freq2))
 
-        df = pd.DataFrame.from_records(derived_freq_records, columns=['pos', 'base', 'freq'])
+        df = pd.DataFrame.from_records(derived_freq_records, columns=['pos', 'anc', 'der', 'derfreq'])
         # print(df)
-        df.to_hdf(hdf_file_name, key='{}/chr{}'.format(pop, chrom), mode='a', format='table', data_columns=['pos', 'freq'], complevel=9,complib='blosc')
+        df.to_hdf(hdf_file_name, key='{}/chr{}'.format(pop, chrom), mode='a', format='table', data_columns=['pos', 'derfreq'], complevel=9,complib='blosc')
 
     #     break
     # break
